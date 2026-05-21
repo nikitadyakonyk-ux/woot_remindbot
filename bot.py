@@ -61,7 +61,10 @@ def extract_mentions(text):
 def clean_text(text, *patterns_to_remove):
     result = text
     for p in patterns_to_remove:
-        result = re.sub(p, "", result, flags=re.IGNORECASE)
+        if isinstance(p, str):
+            result = re.sub(p, "", result, flags=re.IGNORECASE)
+        else:
+            result = re.sub(p, "", result)
     result = re.sub(r"\b(нагадай|нагадати|через|за|до|і|та|потім|сьогодні|о|зранку|ввечері|вранці)\b", "", result, flags=re.IGNORECASE)
     result = re.sub(r"\s+", " ", result).strip(" ,.-")
     return result or "нагадування"
