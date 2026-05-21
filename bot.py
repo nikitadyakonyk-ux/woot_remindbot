@@ -32,7 +32,7 @@ TIME_PATTERN = re.compile(
     r"(\d+)\s*(секунд|секунди|сек|хвилин|хвилини|годин|години|днів|дні|день|год|хв|сек|дн|с|х|м|г|ч|д)\b",
     re.IGNORECASE,
 )
-CLOCK_PATTERN = re.compile(r"\bо\s+(\d{1,2})[:\.](\d{2})\b", re.IGNORECASE)
+CLOCK_PATTERN = re.compile(r"(?:^|(?<=\s)|(?<=[,!?]))о\s+(\d{1,2})[:\.](\d{2})(?!\d)", re.IGNORECASE)
 WEEKDAYS_UA = {
     "понеділка": "mon", "понеділок": "mon",
     "вівторка": "tue", "вівторок": "tue",
@@ -147,6 +147,7 @@ async def cmd_start(msg: types.Message):
         "• зателефонувати мамі о 18:30\n"
         "• яйця через 7 хв\n"
         "• щодня о 10:00 @karinusik опублікувати сторіс\n\n"
+        "В групі пиши: @woot_remindbot нагадай для @user щось через 10хв\n\n"
         "/list — мої нагадування\n"
         "/clear — видалити всі"
     )
@@ -176,12 +177,37 @@ async def cmd_clear(msg: types.Message):
     await msg.answer(f"Видалено: {n}")
 
 
+BOT_USERNAME = None
+
+
+async def get_bot_username():
+    global BOT_USERNAME
+    if BOT_USERNAME is None:
+        me = await bot.get_me()
+        BOT_USERNAME = me.username
+    return BOT_USERNAME
+
+
 @dp.message()
 async def handle_message(msg: types.Message):
     if not msg.text:
         return
     text = msg.text
+    is_group = msg.chat.type in ("group", "supergroup")
+    if is_group:
+        username = await get_bot_username()
+        mention = f"@{username}"
+        if mention.lower() not in text.lower():
+            return
+        text = re.sub(re.escape(mention), "", text, flags=re.IGNORECASE).strip()
+    try:
+        await _handle(msg, text)
+    except Exception as e:
+        logging.exception("handle error")
+        await msg.answer(f"⚠️ Помилка: {e}")
 
+
+async def _handle(msg: types.Message, text: str):
     if DAILY_PATTERN.search(text):
         hour, minute, label = parse_daily(text)
         if hour is not None:
@@ -190,10 +216,7 @@ async def handle_message(msg: types.Message):
                 hour=hour, minute=minute,
                 kwargs={"chat_id": msg.chat.id, "text": label},
             )
-            await msg.answer(
-                f"🔁 Щодня нагадуватиму: {label}\n"
-                f"🕐 Кожного дня о {hour:02d}:{minute:02d}"
-            )
+            await msg.answer(f"🔁 Щодня нагадуватиму: {label}\n🕐 Кожного дня о {hour:02d}:{minute:02d}")
             return
         await msg.answer("Вкажи час: щодня о 10:00 текст")
         return
@@ -207,10 +230,7 @@ async def handle_message(msg: types.Message):
                 kwargs={"chat_id": msg.chat.id, "text": label},
             )
             day_display = WEEKDAYS_UA_DISPLAY.get(day_cron, day_cron)
-            await msg.answer(
-                f"🔁 Щотижня нагадуватиму: {label}\n"
-                f"📅 Кожного {day_display} о {hour:02d}:{minute:02d}"
-            )
+            await msg.answer(f"🔁 Щотижня нагадуватиму: {label}\n📅 Кожного {day_display} о {hour:02d}:{minute:02d}")
             return
 
     if CLOCK_PATTERN.search(text) and not TIME_PATTERN.search(text):
@@ -220,21 +240,12 @@ async def handle_message(msg: types.Message):
                 send_reminder, "date", run_date=run_at,
                 kwargs={"chat_id": msg.chat.id, "text": label},
             )
-            await msg.answer(
-                f"✅ Нагадаю: {label}\n"
-                f"🕐 {run_at.strftime('%d.%m о %H:%M')}"
-            )
+            await msg.answer(f"✅ Нагадаю: {label}\n🕐 {run_at.strftime('%d.%m о %H:%M')}")
             return
 
     deltas, label = parse_reminders(text)
     if not deltas:
-        await msg.answer(
-            "Не зрозумів коли нагадати 🤔\n\n"
-            "Спробуй:\n"
-            "• щось через 30хв\n"
-            "• щось о 18:30\n"
-            "• кожного четверга о 11:00 щось"
-        )
+        await msg.answer("Не зрозумів коли нагадати 🤔\n\nСпробуй:\n• щось через 30хв\n• щось о 18:30\n• кожного четверга о 11:00 щось")
         return
     now = datetime.now(TZ)
     times = []
